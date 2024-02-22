@@ -1,3 +1,0 @@
-make
-./client
-./server
