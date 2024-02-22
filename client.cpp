@@ -87,10 +87,14 @@ static int32_t read_res(int fd) {
 
 int main() {
 
+  log("Client.Main", "Starting Client");
+
   int fd = socket(AF_INET, SOCK_STREAM, 0);
   if (fd < 0) {
     die("socket()");
   }
+
+  log("Client.Main", "Creating socket");
 
   struct sockaddr_in addr = {};
   addr.sin_family = AF_INET;
@@ -100,6 +104,8 @@ int main() {
   if (rv) {
     die("connect");
   }
+
+  log("Client.Main", "Connected to Socket");
 
   // multiple pipelined requests
   const char *query_list[3] = {"hello1", "hello2", "hello3"};

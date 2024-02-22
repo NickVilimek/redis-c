@@ -57,6 +57,7 @@ static void conn_put(std::vector<Conn *> &fd2conn, Conn *conn) {
 }
 
 static int32_t accept_new_conn(std::vector<Conn *> &fd2conn, int fd) {
+  log("Server.AcceptNewConn", "Accepting new connection");
   struct sockaddr_in client_addr = {};
   socklen_t socklen = sizeof(client_addr);
   int connfd = accept(fd, (struct sockaddr *)&client_addr, &socklen);
@@ -275,6 +276,7 @@ static void state_req(Conn *conn) {
 }
 
 static void connection_io(Conn *conn) {
+  log("Main.Server", "Starting Connection IO");
   if (conn->state == STATE_REQ) {
     state_req(conn);
   } else if (conn->state == STATE_RES) {
@@ -326,6 +328,7 @@ int main() {
   // the event loop
   std::vector<struct pollfd> poll_args;
   while (true) {
+    poll_args.clear();
     struct pollfd pfd = {fd, POLLIN, 0};
     poll_args.push_back(pfd);
 
@@ -333,12 +336,10 @@ int main() {
       if(!conn) {
         continue;
       }
-
       struct pollfd pfd = {};
       pfd.fd = conn->fd;
       pfd.events = (conn->state == STATE_REQ) ? POLLIN : POLLOUT;
       pfd.events = pfd.events | POLLERR;
-
       poll_args.push_back(pfd);
     }
 
@@ -353,12 +354,9 @@ int main() {
     }
 
     // Find Active connection and close/free unused ones
-    for(size_t i = 0; i < poll_args.size(); i++) {
-
-      if(!poll_args[i].revents) {
-        continue;
-      }
-
+    for(size_t i = 1; i < poll_args.size(); i++) {
+      if(!poll_args[i].revents) { continue; }
+      
       Conn *conn = fd2conn[poll_args[i].fd];
       connection_io(conn);
 
