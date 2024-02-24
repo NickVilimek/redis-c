@@ -6,6 +6,7 @@
 #include <poll.h>
 #include <fcntl.h>
 #include "helpers/utils.h"
+#include <map>
 
 const size_t k_max_msg = 4096;
 
@@ -38,6 +39,13 @@ enum {
   STATE_END = 2
 };
 
+enum {
+  RES_OK = 0,
+  RES_ERR = 1,
+  RES_NX = 2,
+};
+
+
 struct Conn {
   int fd = -1;
   uint32_t state = 0;
@@ -57,7 +65,6 @@ static void conn_put(std::vector<Conn *> &fd2conn, Conn *conn) {
 }
 
 static int32_t accept_new_conn(std::vector<Conn *> &fd2conn, int fd) {
-  log("Server.AcceptNewConn", "Accepting new connection");
   struct sockaddr_in client_addr = {};
   socklen_t socklen = sizeof(client_addr);
   int connfd = accept(fd, (struct sockaddr *)&client_addr, &socklen);
@@ -81,77 +88,114 @@ static int32_t accept_new_conn(std::vector<Conn *> &fd2conn, int fd) {
   conn->wbuf_sent = 0;
   conn_put(fd2conn, conn);
 
+  log("Server.AcceptNewConn", "Accepted New Connection");
+  std::cout << "--- " << conn->fd << std::endl;
+
   return 0;
 }
 
-
-static int32_t read_full(int fd, char* buf, size_t n) {
-  while(n > 0) {
-    ssize_t rv = read(fd, buf, n);
-    std::cout << "Just read " << rv << std::endl;
-    if (rv <= 0) {
-        return -1;  // error, or unexpected EOF
-    }
-    assert((size_t)rv <= n);
-    n -= (size_t)rv;
-    buf += rv;
-  }
-  return 0;
-}
-
-static int32_t write_all(int fd, char* buf, size_t n) {
-  while (n > 0) {
-    ssize_t rv = write(fd, buf, n);
-    if (rv <= 0) {
-        return -1;  // error
-    }
-    assert((size_t)rv <= n);
-    n -= (size_t)rv;
-    buf += rv;
-  }
-  return 0;
-}
-
-static int32_t one_request(int connfd) {
-  char rbuf[4 + k_max_msg + 1];
-  errno = 0;
-
-  int32_t err = read_full(connfd, rbuf, 4);
-  if (err) {
-    if (errno == 0) {
-        msg("EOF");
-    } else {
-        msg("read() error");
-    }
-    return err;
-  }
-
-  uint32_t len = 0;
-  memcpy(&len, rbuf, 4);  // assume little endian
-  if (len > k_max_msg) {
-    msg("too long");
+/* */
+static int32_t parse_req(
+    const uint8_t *data, 
+    size_t len, 
+    std::vector<std::string> &out
+)
+{
+  if (len < 4) {
     return -1;
   }
 
-  // request body
-  err = read_full(connfd, &rbuf[4], len);
-  if (err) {
-    msg("read() error");
-    return err;
+  uint32_t n = 0;
+  memcpy(&n, &data[0], 4);
+  if (n > k_max_msg) {
+    return -1;
   }
 
-  // do something
-  rbuf[4 + len] = '\0';
-  printf("client says: %s\n", &rbuf[4]);
+  size_t pos = 4;
+  while (n--) {
+    if (pos + 4 > len) {
+      return -1;
+    }
+    uint32_t sz = 0;
+    memcpy(&sz, &data[pos], 4);
+    if (pos + 4 + sz > len) {
+      return -1;
+    }
+    out.push_back(std::string((char *)&data[pos + 4], sz));
+    pos += 4 + sz;
+  }
 
-  // reply using the same protocol
-  const char reply[] = "world";
-  char wbuf[4 + sizeof(reply)];
-  len = (uint32_t)strlen(reply);
-  memcpy(wbuf, &len, 4);
-  memcpy(&wbuf[4], reply, len);
-  return write_all(connfd, wbuf, 4 + len);
+  if (pos != len) {
+    return -1;  // trailing garbage
+  }
+
+  return 0;
 }
+
+// Do something better with this
+static std::map<std::string, std::string> g_map;
+
+static uint32_t do_get(const std::vector<std::string> &cmd, uint8_t *res, uint32_t *reslen) {
+  if (!g_map.count(cmd[1])) {
+    return RES_NX;
+  }
+  std::string &val = g_map[cmd[1]];
+  assert(val.size() <= k_max_msg);
+  memcpy(res, val.data(), val.size());
+  *reslen = (uint32_t)val.size();
+  return RES_OK;
+}
+
+static uint32_t do_set(const std::vector<std::string> &cmd, uint8_t *res, uint32_t *reslen) {
+  (void)res;
+  (void)reslen;
+  g_map[cmd[1]] = cmd[2];
+  return RES_OK;
+}
+
+static uint32_t do_del(const std::vector<std::string> &cmd, uint8_t *res, uint32_t *reslen) {
+  (void)res;
+  (void)reslen;
+  g_map.erase(cmd[1]);
+  return RES_OK;
+}
+
+static bool cmd_is(const std::string &word, const char *cmd) {
+  return 0 == strcasecmp(word.c_str(), cmd);
+}
+
+static int32_t do_request(
+  const uint8_t *req, // Read buffer start at byte 4 (after len bytes)
+  uint32_t reqlen, // First 4 bytes which are the request lengths
+  uint32_t *rescode, // Response code 
+  uint8_t *res, // Beginning of write buffer offset 8  
+  uint32_t *reslen // Write length
+)
+{
+  std::vector<std::string> cmd;
+  if (0 != parse_req(req, reqlen, cmd)) {
+    msg("bad req");
+    return -1;
+  }
+
+  if (cmd.size() == 2 && cmd_is(cmd[0], "get")) {
+      *rescode = do_get(cmd, res, reslen);
+  } else if (cmd.size() == 3 && cmd_is(cmd[0], "set")) {
+      *rescode = do_set(cmd, res, reslen);
+  } else if (cmd.size() == 2 && cmd_is(cmd[0], "del")) {
+      *rescode = do_del(cmd, res, reslen);
+  } else {
+    // cmd is not recognized
+    *rescode = RES_ERR;
+    const char *msg = "Unknown cmd";
+    strcpy((char *)res, msg);
+    *reslen = strlen(msg);
+    return 0;
+  }
+
+  return 0;
+}
+
 
 static bool try_flush_buffer(Conn *conn) {
   ssize_t rv = 0;
@@ -181,7 +225,6 @@ static bool try_flush_buffer(Conn *conn) {
   return true;
 }
 
-
 static void state_res(Conn *conn) {
   while (try_flush_buffer(conn)) {}
 }
@@ -204,17 +247,31 @@ static bool try_one_request(Conn *conn) {
     return false;
   }
 
-  // got one request, do something with it
-  printf("client says: %.*s\n", len, &conn->rbuf[4]);
+  // got one request, generate the response.
+  uint32_t rescode = 0;
+  uint32_t wlen = 0;
+  int32_t err = do_request(
+    &conn->rbuf[4], 
+    len,
+    &rescode, 
+    &conn->wbuf[4 + 4], 
+    &wlen
+  );
 
-  // generating echoing response
-  memcpy(&conn->wbuf[0], &len, 4);
-  memcpy(&conn->wbuf[4], &conn->rbuf[4], len);
-  conn->wbuf_size = 4 + len;
+  if (err) {
+    conn->state = STATE_END;
+    return false;
+  }
+
+  wlen += 4;
+  memcpy(&conn->wbuf[0], &wlen, 4);
+  memcpy(&conn->wbuf[4], &rescode, 4);
+  conn->wbuf_size = 4 + wlen;
 
   // remove the request from the buffer.
   // note: frequent memmove is inefficient.
   // note: need better handling for production code.
+  // equivalent to JS shift operation of remain bytes 
   size_t remain = conn->rbuf_size - 4 - len;
   if (remain) {
     memmove(conn->rbuf, &conn->rbuf[4 + len], remain);
@@ -234,12 +291,13 @@ static bool try_one_request(Conn *conn) {
 static bool try_fill_buffer(Conn *conn) {
   assert(conn->rbuf_size < sizeof(conn->rbuf));
 
-  std::cout << "Starting Read" << std::endl;
+  log("Server.ReadReq", "Starting Read");
+  std::cout << "--- " << conn->fd << " " << std::endl; 
 
   ssize_t rv = 0;
   do {
     size_t cap = sizeof(conn->rbuf) - conn->rbuf_size;
-    std::cout << "Total rbuf size" << sizeof(conn->rbuf) << " rbuf_size" << conn->rbuf_size << std::endl;
+    std::cout << "Total rbuf size " << sizeof(conn->rbuf) << ", curr size " << conn->rbuf_size << std::endl;
     rv = read(conn->fd, &conn->rbuf[conn->rbuf_size], cap);
   } while(rv < 0 && errno == EINTR);
 
