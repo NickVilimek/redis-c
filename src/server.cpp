@@ -96,9 +96,9 @@ static int32_t accept_new_conn(std::vector<Conn *> &fd2conn, int fd) {
 
 /* */
 static int32_t parse_req(
-    const uint8_t *data, 
-    size_t len, 
-    std::vector<std::string> &out
+  const uint8_t *data, 
+  size_t len, 
+  std::vector<std::string> &out
 )
 {
   if (len < 4) {
