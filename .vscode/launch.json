@@ -1,10 +1,22 @@
 {
   "configurations": [
     {
-      "name": "C/C++: clang++ build and debug active file",
+      "name": "Server Debug",
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/build/server",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "lldb",
+    },
+    {
+      "name": "Test Debug",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/tests",
       "args": [],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
