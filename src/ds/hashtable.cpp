@@ -2,14 +2,14 @@
 #include <assert.h>
 #include "hashtable.h"
 
-static void hash_table_init(HTab *htab, size_t n) {
+void hash_table_init(HTab *htab, size_t n) {
   assert(n > 0 && ((n - 1) & n) == 0);
   htab->tab = (HNode **)calloc(sizeof(HNode *), n);
   htab->mask = n - 1;
   htab->size = 0;
 }
 
-static void hash_table_insertion(HTab *htab, HNode *node) {
+void hash_table_insertion(HTab *htab, HNode *node) {
   size_t pos = node->hcode & htab->mask;  // slot index
   HNode *next = htab->tab[pos];           // prepend the list
   node->next = next;
@@ -17,7 +17,7 @@ static void hash_table_insertion(HTab *htab, HNode *node) {
   htab->size++;
 }
 
-static HNode **hash_table_lookup(HTab *htab, HNode *key, bool (*eq)(HNode *, HNode *)) {
+HNode **hash_table_lookup(HTab *htab, HNode *key, bool (*eq)(HNode *, HNode *)) {
   if(!htab->tab) {
     return NULL;
   }
@@ -32,7 +32,7 @@ static HNode **hash_table_lookup(HTab *htab, HNode *key, bool (*eq)(HNode *, HNo
   return NULL;
 }
 
-static HNode* hash_table_detach(HTab *htab, HNode **from) {
+HNode* hash_table_detach(HTab *htab, HNode **from) {
   HNode *node = *from;
   *from = node->next;
   htab->size--;
@@ -41,7 +41,7 @@ static HNode* hash_table_detach(HTab *htab, HNode **from) {
 
 const size_t k_resizing_work = 128; 
 
-static void hm_help_resizing(HMap *hmap) {
+void hm_help_resizing(HMap *hmap) {
   size_t nwork = 0;
   while (nwork < k_resizing_work && hmap->ht2.size > 0) {
     // scan for nodes from ht2 and move them to ht1

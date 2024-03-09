@@ -20,6 +20,11 @@ struct HMap {
     size_t resizing_pos = 0;
 };
 
+void hash_table_init(HTab *htab, size_t n);
+void hash_table_insertion(HTab *htab, HNode *node);
+HNode **hash_table_lookup(HTab *htab, HNode *key, bool (*eq)(HNode *, HNode *));
+HNode* hash_table_detach(HTab *htab, HNode **from);
+
 HNode *hm_lookup(HMap *hmap, HNode *key, bool (*eq)(HNode *, HNode *));
 void hm_insert(HMap *hmap, HNode *node);
 HNode *hm_pop(HMap *hmap, HNode *key, bool (*eq)(HNode *, HNode *));

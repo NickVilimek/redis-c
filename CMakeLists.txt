@@ -29,19 +29,31 @@ FetchContent_MakeAvailable(googletest)
 set(CMAKE_CXX_STANDARD 14)
 
 # Source files
+
+set(COMMON
+  src/ds/hashtable.h
+  src/ds/hashtable.cpp
+  src/helpers/hash.h
+  src/helpers/hash.cpp
+)
+
 set(SOURCES
-    # src/server.cpp
-    # src/client.cpp
-    src/helpers/utils.h
-    src/helpers/utils.cpp
-    src/ds/hashtable.h
-    src/ds/hashtable.cpp
+  # src/server.cpp
+  # src/client.cpp
+  src/helpers/utils.h
+  src/helpers/utils.cpp
+)
+
+set (TESTSOURCES
+  test/test_main.cpp
+  test/test_hashtable.cpp
+  test/test_hash.cpp
 )
 
 # Executable targets
-add_executable(server "src/server" ${SOURCES})
-add_executable(client "src/client" ${SOURCES})
-add_executable(tests test/test_main.cpp test/test_sample.cpp)
+add_executable(server "src/server" ${COMMON} ${SOURCES})
+add_executable(client "src/client" ${COMMON} ${SOURCES})
+add_executable(tests ${COMMON} ${TESTSOURCES})
 
 target_link_libraries(
   tests 

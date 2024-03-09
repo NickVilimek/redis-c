@@ -5,10 +5,16 @@
 #include <netinet/ip.h>
 #include <poll.h>
 #include <fcntl.h>
-#include "helpers/utils.h"
 #include <map>
 
+#include "helpers/utils.h"
 #include "ds/hashtable.h"
+#include "helpers/hash.h"
+
+using std::vector;
+using std::string;
+using std::cout;
+using std::endl;
 
 #define container_of(ptr, type, member) ({                  \
     const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
@@ -155,18 +161,10 @@ static bool entry_eq(HNode *lhs, HNode *rhs) {
   return le->key == re->key;
 }
 
-static uint64_t str_hash(const uint8_t *data, size_t len) {
-  uint32_t h = 0x811C9DC5;
-  for (size_t i = 0; i < len; i++) {
-    h = (h + data[i]) * 0x01000193;
-  }
-  return h;
-}
-
 static uint32_t do_get(std::vector<std::string> &cmd, uint8_t *res, uint32_t *reslen) {
   Entry key;
   key.key.swap(cmd[1]);
-  key.node.hcode = str_hash((uint8_t *) key.key.data(), key.key.size());
+  key.node.hcode = jenkins_one_at_a_time_hash((uint8_t *) key.key.data(), key.key.size());
 
   HNode *node = hm_lookup(&g_data.db, &key.node, &entry_eq);
   if(!node) {
@@ -187,7 +185,7 @@ static uint32_t do_set(std::vector<std::string> &cmd, uint8_t *res, uint32_t *re
 
   Entry key;
   key.key.swap(cmd[1]);
-  key.node.hcode = str_hash((uint8_t *) key.key.data(), key.key.size());
+  key.node.hcode = jenkins_one_at_a_time_hash((uint8_t *) key.key.data(), key.key.size());
 
   HNode *node = hm_lookup(&g_data.db, &key.node, &entry_eq);
   if(node) {
@@ -209,7 +207,7 @@ static uint32_t do_del(std::vector<std::string> &cmd, uint8_t *res, uint32_t *re
 
   Entry key;
   key.key.swap(cmd[1]);
-  key.node.hcode = str_hash((uint8_t *) key.key.data(), key.key.size());
+  key.node.hcode = jenkins_one_at_a_time_hash((uint8_t *) key.key.data(), key.key.size());
 
   HNode *node = hm_pop(&g_data.db, &key.node, &entry_eq);
   if(node) {
