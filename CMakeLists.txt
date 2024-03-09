@@ -31,17 +31,23 @@ set(CMAKE_CXX_STANDARD 14)
 # Source files
 
 set(COMMON
-  src/ds/hashtable.h
-  src/ds/hashtable.cpp
+  src/data-access/serial.h
+  src/data-access/hashtable.h
+  src/data-access/hashtable.cpp
   src/helpers/hash.h
   src/helpers/hash.cpp
-)
-
-set(SOURCES
-  # src/server.cpp
-  # src/client.cpp
+  src/data-access/table_repo.h
+  src/data-access/table_repo.cpp
   src/helpers/utils.h
   src/helpers/utils.cpp
+)
+
+set(SERVER_SOURCES
+  src/server.cpp
+)
+
+set(CLIENT_SOURCES
+  src/client.cpp
 )
 
 set (TESTSOURCES
@@ -51,8 +57,8 @@ set (TESTSOURCES
 )
 
 # Executable targets
-add_executable(server "src/server" ${COMMON} ${SOURCES})
-add_executable(client "src/client" ${COMMON} ${SOURCES})
+add_executable(server ${COMMON} ${SERVER_SOURCES})
+add_executable(client "src/client" ${COMMON} ${CLIENT_SOURCES})
 add_executable(tests ${COMMON} ${TESTSOURCES})
 
 target_link_libraries(

@@ -8,17 +8,13 @@
 #include <map>
 
 #include "helpers/utils.h"
-#include "ds/hashtable.h"
 #include "helpers/hash.h"
+#include "data-access/table_repo.h"
 
 using std::vector;
 using std::string;
 using std::cout;
 using std::endl;
-
-#define container_of(ptr, type, member) ({                  \
-    const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
-    (type *)( (char *)__mptr - offsetof(type, member) );})
 
 const size_t k_max_msg = 4096;
 
@@ -51,11 +47,6 @@ enum {
   STATE_END = 2
 };
 
-enum {
-  RES_OK = 0,
-  RES_ERR = 1,
-  RES_NX = 2,
-};
 
 struct Conn {
   int fd = -1;
@@ -143,115 +134,30 @@ static int32_t parse_req(
   return 0;
 }
 
-/* Hashmap Stuff */
+/* Data Access*/
 
 static struct {
   HMap db;
 } g_data;
 
-struct Entry {
-  struct HNode node;
-  std::string key;
-  std::string val;
-};
-
-static bool entry_eq(HNode *lhs, HNode *rhs) {
-  struct Entry *le = container_of(lhs, struct Entry, node);
-  struct Entry *re = container_of(lhs, struct Entry, node);
-  return le->key == re->key;
-}
-
-static uint32_t do_get(std::vector<std::string> &cmd, uint8_t *res, uint32_t *reslen) {
-  Entry key;
-  key.key.swap(cmd[1]);
-  key.node.hcode = jenkins_one_at_a_time_hash((uint8_t *) key.key.data(), key.key.size());
-
-  HNode *node = hm_lookup(&g_data.db, &key.node, &entry_eq);
-  if(!node) {
-    return RES_NX;
-  }
-
-  const std::string &val = container_of(node, Entry, node)->val;
-  assert(val.size() <= k_max_msg);
-  memcpy(res, val.data(), val.size());
-  *reslen = (uint32_t) val.size();
-
-  return RES_OK;
-}
-
-static uint32_t do_set(std::vector<std::string> &cmd, uint8_t *res, uint32_t *reslen) {
-  (void)res;
-  (void)reslen;
-
-  Entry key;
-  key.key.swap(cmd[1]);
-  key.node.hcode = jenkins_one_at_a_time_hash((uint8_t *) key.key.data(), key.key.size());
-
-  HNode *node = hm_lookup(&g_data.db, &key.node, &entry_eq);
-  if(node) {
-    container_of(node, Entry, node)->val.swap(cmd[2]);
-  } else {
-    Entry *ent = new Entry();
-    ent->key.swap(key.key);
-    ent->node.hcode = key.node.hcode;
-    ent->val.swap(cmd[2]);
-    hm_insert(&g_data.db, &ent->node);
-  }
-
-  return RES_OK;
-}
-
-static uint32_t do_del(std::vector<std::string> &cmd, uint8_t *res, uint32_t *reslen) {
-  (void)res;
-  (void)reslen;
-
-  Entry key;
-  key.key.swap(cmd[1]);
-  key.node.hcode = jenkins_one_at_a_time_hash((uint8_t *) key.key.data(), key.key.size());
-
-  HNode *node = hm_pop(&g_data.db, &key.node, &entry_eq);
-  if(node) {
-    delete container_of(node, Entry, node);
-  } 
-  return RES_OK;
-}
-
 static bool cmd_is(const std::string &word, const char *cmd) {
   return 0 == strcasecmp(word.c_str(), cmd);
 }
 
-static int32_t do_request(
-  const uint8_t *req, // Read buffer start at byte 4 (after len bytes)
-  uint32_t reqlen, // First 4 bytes which are the request lengths
-  uint32_t *rescode, // Response code 
-  uint8_t *res, // Beginning of write buffer offset 8  
-  uint32_t *reslen // Write length
-)
-{
-  std::vector<std::string> cmd;
-  if (0 != parse_req(req, reqlen, cmd)) {
-    msg("bad req");
-    return -1;
-  }
-
-  if (cmd.size() == 2 && cmd_is(cmd[0], "get")) {
-      *rescode = do_get(cmd, res, reslen);
+static void do_request(std::vector<std::string> &cmd, std::string &out) {
+ if (cmd.size() == 1 && cmd_is(cmd[0], "keys")) {
+    do_keys(&g_data.db, cmd, out);
+  } else if (cmd.size() == 2 && cmd_is(cmd[0], "get")) {
+    do_get(&g_data.db, cmd, out);
   } else if (cmd.size() == 3 && cmd_is(cmd[0], "set")) {
-      *rescode = do_set(cmd, res, reslen);
+    do_set(&g_data.db, cmd, out);
   } else if (cmd.size() == 2 && cmd_is(cmd[0], "del")) {
-      *rescode = do_del(cmd, res, reslen);
+    do_del(&g_data.db, cmd, out);
   } else {
     // cmd is not recognized
-    *rescode = RES_ERR;
-    const char *msg = "Unknown cmd";
-    strcpy((char *)res, msg);
-    *reslen = strlen(msg);
-    return 0;
+    gen_unknown_cmd_err(out);
   }
-
-  return 0;
 }
-
 
 static bool try_flush_buffer(Conn *conn) {
   ssize_t rv = 0;
@@ -303,25 +209,25 @@ static bool try_one_request(Conn *conn) {
     return false;
   }
 
-  // got one request, generate the response.
-  uint32_t rescode = 0;
-  uint32_t wlen = 0;
-  int32_t err = do_request(
-    &conn->rbuf[4], 
-    len,
-    &rescode, 
-    &conn->wbuf[4 + 4], 
-    &wlen
-  );
-
-  if (err) {
+  std::vector<std::string> cmd;
+  if (0 != parse_req(&conn->rbuf[4], len, cmd)) {
+    msg("bad req");
     conn->state = STATE_END;
     return false;
   }
 
-  wlen += 4;
+  std::string out;
+  do_request(cmd, out);
+
+  // pack the response into the buffer
+  if (4 + out.size() > k_max_msg) {
+    out.clear();
+    gen_too_big_err(out);
+  }
+
+  uint32_t wlen = (uint32_t)out.size();
   memcpy(&conn->wbuf[0], &wlen, 4);
-  memcpy(&conn->wbuf[4], &rescode, 4);
+  memcpy(&conn->wbuf[4], out.data(), out.size());
   conn->wbuf_size = 4 + wlen;
 
   // remove the request from the buffer.

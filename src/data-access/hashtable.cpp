@@ -117,3 +117,16 @@ void hm_destroy(HMap *hmap) {
   free(hmap->ht2.tab);
   *hmap = HMap{};
 }
+
+void h_scan(HTab *tab, void (*f)(HNode *, void *), void *arg) {
+  if (tab->size == 0) {
+    return;
+  }
+  for (size_t i = 0; i < tab->mask + 1; ++i) {
+    HNode *node = tab->tab[i];
+    while (node) {
+      f(node, arg);
+      node = node->next;
+    }
+  }
+}

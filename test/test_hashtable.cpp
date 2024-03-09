@@ -1,7 +1,7 @@
 // test/test_sample.cpp
 #include <gtest/gtest.h>
 #include <iostream>
-#include "../src/ds/hashtable.h"
+#include "../src/data-access/hashtable.h"
 
 using namespace std;
 
